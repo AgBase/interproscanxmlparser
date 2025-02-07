@@ -5,7 +5,7 @@
 # 10/2013 CRG Modified for InterProScan5 XML output
 #
 # Parameters:
-# -i input xml file  (required)    
+# -f output folder from interproscan (required)
 # -d database (required) 
 # -t taxon (required)
 # -y type (transcript, protein) (required)
@@ -19,9 +19,9 @@ use Getopt::Std;
 use File::Basename;
 use Text::ParseWords;
 use File::Copy;
-getopts('d:t:y:n:i:m:b:h');
+getopts('d:t:y:n:m:b:f:h');
 
-our ($opt_d, $opt_t, $opt_y, $opt_n, $opt_i, $opt_m, $opt_b, $opt_h);
+our ($opt_d, $opt_t, $opt_y, $opt_n, $opt_f, $opt_m, $opt_b, $opt_i, $opt_h);
 
 ##########################
 # global variables
@@ -29,6 +29,14 @@ our ($opt_d, $opt_t, $opt_y, $opt_n, $opt_i, $opt_m, $opt_b, $opt_h);
 
 my ($output_filename,%acc_interpro, %acc_go,%acc_pathway,%interpro_names,%go_names,
     %mapping_hash,%acc_hash,%acc_name_hash,$currDate);
+
+opendir(DIR, "$opt_f");
+my @files = grep(/\.xml$/,readdir(DIR));
+closedir(DIR);
+
+foreach my $file (@files) {
+   $opt_i = $file;
+}
 
 ##########################
 # subroutine definitions
@@ -51,7 +59,7 @@ sub generate_gaf_output($$$$$);
 
 &check_opts; 
 
-&parse_xml($opt_i,$output_filename, $opt_y);
+&parse_xml ($opt_i,$output_filename, $opt_y);
 
 &parse_mapping_file($opt_m);
 
@@ -80,24 +88,24 @@ sub generate_gaf_output($$$$$);
                  ##########################################################
 sub parse_xml($$$) {
    my ($err_fh, $err_file, $input_file,$output_file,
-    $results, @res_array,$xref_id, $interpro_id, $type, @xref_array, $rcnt
+    $results, $xref_id, $interpro_id, $type, @xref_array
    );
 
   $xref_id = $interpro_id = $type = '';
   @xref_array=();
- 
+
    $input_file = shift;
    $output_file = shift;
    $type = shift;
   
   $err_file = $output_file . '.err';
   open($err_fh,">$err_file");
-
-  $results = `grep -P "<protein>|<xref|<entry|<go-xref|<pathway-xref|</protein>" $input_file`;
-  @res_array = split(/\n/,$results);
-   $rcnt=0;
- for my $line ( @res_array ) {
-   $line =~ s/\'/\\\'/g; 
+  open(INFILE, "<$opt_f\/$input_file");
+  while (<INFILE>){
+    my $line;
+    $line = $_;
+    next unless $line =~ m/(\<protein\>|\<xref|\<entry|\<go-xref|\<pathway-xref|\<\/protein\>)/;
+    $line =~ s/\'/\\\'/g; 
      if ($line =~ m/\s*<protein>/) {
          $xref_id = $interpro_id = '';
          @xref_array=();
@@ -211,9 +219,7 @@ sub parse_xml($$$) {
            }
        } # no error found
      } # pathway input line
-   $rcnt++;
-#   if ($rcnt > 50) { exit; }
- } # foreach xml line  parsed
+   } # while xml line  parsed
  close $err_fh;
 } # end of parse_xml subroutine
 
@@ -569,7 +575,7 @@ sub generate_gaf_output($$$$$) {
   $output_gaf_file = $oname . '_gaf.txt';
 
   open($gaf_fh, ">$output_gaf_file") || die "Cannot open $output_gaf_file for writing.\n";
-  print $gaf_fh "Database\tDB_Object_ID\tDB_Object_Symbol\tQualifier\tGO_ID\tGO_Name\tDB_Reference\tEvidence_Code\tWith_From\tAspect\tDB_Object_Name\tDB_Object_Synonyms\tDB_Object_Type\tTaxon\tDate\tAssigned_By\tAnnotation_Extension\tGene_Product_Form_Id\n";
+#  print $gaf_fh "Database\tDB_Object_ID\tDB_Object_Symbol\tQualifier\tGO_ID\tDB_Reference\tEvidence_Code\tWith_From\tAspect\tDB_Object_Name\tDB_Object_Synonyms\tDB_Object_Type\tTaxon\tDate\tAssigned_By\tAnnotation_Extension\tGene_Product_Form_Id\n";
 
   foreach my $acc (sort keys %acc_go) {
      if ($acc eq '0' || $acc eq '') { next; }
@@ -604,7 +610,7 @@ sub generate_gaf_output($$$$$) {
                  $with_from .= "InterPro:$interpro_id";
             }
          }
-         print $gaf_fh "$db\t$db_object_id\t$db_object_id\t\t$go_id\t$go_name\tGO_REF:0000002\tIEA\t$with_from\t$aspect\t$db_object_name\t\t$obj_type\ttaxon:$taxon\t$date\t$assigned\t\t\n";
+         print $gaf_fh "$db\t$db_object_id\t$db_object_id\t\t$go_id\tGO_REF:0000002\tIEA\t$with_from\t$aspect\t$db_object_name\t\t$obj_type\ttaxon:$taxon\t$date\t$assigned\t\t\n";
    } # foreach go_ids
 } # foreach acc
 close $gaf_fh;
@@ -634,10 +640,10 @@ sub check_opts {
   if (defined $opt_h) {
      print STDERR <<END;
 
-Usage:  perl $0 [-h] -i interproscan_xml_file -d database(GenBank|Private) -t taxon -y protein|transcript -n "biocurator name" [-m mapping_file] [-b input_bad_file]
+Usage:  perl $0 [-h] -f interproscan_folder -d database(GenBank|Private) -t taxon -y protein|transcript -n "biocurator name" [-m mapping_file] [-b input_bad_file]
 
 Required parameters:
-        -i interproscan results xml file
+        -f interproscan results folder
         -d database (GenBank|Private)
         -t taxon (9913|9031)
         -y protein|transcript (type of sequence)
@@ -650,7 +656,7 @@ Optional parameters:
               this will map them back to original fasta headers)
 
 Examples:
-        % perl $0 -i iprs_results.xml -d Private -t 9031 -y protein -n "Cathy Gresham"
+        % perl $0 -f iprs_results folder -d Private -t 9031 -y protein -n "Cathy Gresham"
 
     Print Help message
         % perl $0 -h
@@ -658,7 +664,7 @@ END
     exit;
   }
   if (!defined $opt_i || !$opt_i) { die "Invalid inteprroscan xml file. parameter -i .\n  Exiting now\n\n"; }
-  if ((!-f $opt_i) || (-z $opt_i ) || (!-r $opt_i)) { die "Input filename $opt_i must exist, be readable and contain records.\nExiting now.\n\n"; }
+#  if ((!-f $opt_i) || (-z $opt_i ) || (!-r $opt_i)) { die "Input filename $opt_i must exist, be readable and contain records.\nExiting now.\n\n"; }
 
   if (!defined $opt_d || !$opt_d) { die "Invalid database. parameter -d .\n  Exiting now\n\n"; }
 
